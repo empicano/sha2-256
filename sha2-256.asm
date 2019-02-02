@@ -11,6 +11,8 @@ section .data
 
 section .bss
   buf             resb  64      ; buffer for print_dig
+  chk             resd  64      ; current chunk of in message iteration
+  cpy             resd  8       ; state of compression function (begins as copy of i)
 
 
 section .text
@@ -28,16 +30,15 @@ _start:
   ;; Compute the length of argv[1] and store in ecx
   mov   edi, ebx                ; set edi to string argv[1]
   mov   ecx, -1                 ; set the max size of the string
-  mov   al, 0                   ; initialize al with ascii NUL character
+  mov   eax, 0                  ; initialize eax with ascii NUL character
   cld
-  repne scasb                   ; scan bytes in the string until we find the null character
+  repne scasb                   ; scan bytes in the string until we find the NUL character
   not   ecx                     ; get length of string
   dec   ecx                     ; decrement to account for read NUL character
 
-  ;; Print digest
+  ;; Print digest and exit
   call  print_dig
-
-  jmp   exit                    ; jump to exit label
+  jmp   exit
 
 
 pad:
@@ -49,7 +50,84 @@ pad:
 
 compress:
   ;; SHA256 compression function
-  ;; --> ror for rotate, shr for right shift
+  ;; Expects counter value to know position (0-63) in chunk and k in ecx
+  push  eax
+  push  ebx
+  push  edx
+  push  ecx
+
+  ;; Calculate major
+  mov   eax, [cpy]
+  mov   edx, eax
+  mov   ebx, [cpy+1*4]
+  mov   ecx, [cpy+2*4]
+  and   eax, ebx
+  and   ebx, ecx
+  and   ecx, edx
+  xor   eax, ebx
+  xor   eax, ecx                ; store in eax
+
+  ;; Calculate sigma 0
+  mov   ebx, edx                ; remark that [cpy] is still in edx
+  mov   ecx, edx
+  ror   ebx, 2
+  ror   ecx, 13
+  ror   edx, 22
+  xor   ebx, ecx
+  xor   ebx, edx                ; store in ebx
+
+  ;; Calculate t2
+  add   eax, ebx                ; store in eax
+
+  ;; Calculate sigma 1
+  mov   ebx, [cpy+4*4]
+  mov   ecx, ebx
+  mov   edx, ebx
+  ror   ebx, 6
+  ror   ecx, 11
+  ror   edx, 25
+  xor   ebx, ecx
+  xor   ebx, edx                ; store in ebx
+
+  ;; Calculate ch
+  mov   ecx, [cpy+4*4]
+  mov   edx, ecx
+  not   ecx
+  and   ecx, [cpy+6*4]
+  and   edx, [cpy+5*4]
+  xor   ecx, edx                ; store in ecx
+
+  ;; Calculate t1
+  add   ebx, edx
+  add   ebx, [cpy+7*8]
+  pop   ecx                     ; get counter from stack
+  add   ebx, [chk+ecx*4]
+  add   ebx, [k+ecx*4]          ; store in ebx
+
+  ;; Calculate new compression state
+  mov   edx, [cpy+6*8]
+  mov   [cpy+7*8], edx
+  mov   edx, [cpy+5*8]
+  mov   [cpy+6*8], edx
+  mov   edx, [cpy+4*8]
+  mov   [cpy+5*8], edx
+  mov   edx, [cpy+3*8]
+  add   edx, ebx
+  mov   [cpy+4*8], edx
+  mov   edx, [cpy+2*8]
+  mov   [cpy+3*8], edx
+  mov   edx, [cpy+1*8]
+  mov   [cpy+2*8], edx
+  mov   edx, [cpy]
+  mov   [cpy+1*8], edx
+  add   eax, ebx
+  mov   [cpy], eax
+
+  ;; recover registers
+  pop   edx
+  pop   ebx
+  pop   eax
+  ret
 
 
 print_dig:
