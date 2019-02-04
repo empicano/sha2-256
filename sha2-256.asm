@@ -10,9 +10,9 @@ section .data
 
 
 section .bss
-  buf             resb  64      ; buffer for print_dig
-  chk             resd  64      ; current chunk of in message iteration
-  cpy             resd  8       ; state of compression function (begins as copy of i)
+  buf             resb  65      ; buffer for print_dig (64 char digest + new line char)
+  chk             resd  64      ; current chunk in message iteration
+  stt             resd  8       ; state of compression function (begins as copy of i)
 
 
 section .text
@@ -57,10 +57,10 @@ compress:
   push  ecx
 
   ;; Calculate major
-  mov   eax, [cpy]
+  mov   eax, [stt]
   mov   edx, eax
-  mov   ebx, [cpy+1*4]
-  mov   ecx, [cpy+2*4]
+  mov   ebx, [stt+1*4]
+  mov   ecx, [stt+2*4]
   and   eax, ebx
   and   ebx, ecx
   and   ecx, edx
@@ -68,7 +68,7 @@ compress:
   xor   eax, ecx                ; store in eax
 
   ;; Calculate sigma 0
-  mov   ebx, edx                ; remark that [cpy] is still in edx
+  mov   ebx, edx                ; remark that [stt] is still in edx
   mov   ecx, edx
   ror   ebx, 2
   ror   ecx, 13
@@ -80,7 +80,7 @@ compress:
   add   eax, ebx                ; store in eax
 
   ;; Calculate sigma 1
-  mov   ebx, [cpy+4*4]
+  mov   ebx, [stt+4*4]
   mov   ecx, ebx
   mov   edx, ebx
   ror   ebx, 6
@@ -90,38 +90,38 @@ compress:
   xor   ebx, edx                ; store in ebx
 
   ;; Calculate ch
-  mov   ecx, [cpy+4*4]
+  mov   ecx, [stt+4*4]
   mov   edx, ecx
   not   ecx
-  and   ecx, [cpy+6*4]
-  and   edx, [cpy+5*4]
+  and   ecx, [stt+6*4]
+  and   edx, [stt+5*4]
   xor   ecx, edx                ; store in ecx
 
   ;; Calculate t1
   add   ebx, edx
-  add   ebx, [cpy+7*8]
+  add   ebx, [stt+7*8]
   pop   ecx                     ; get counter from stack
   add   ebx, [chk+ecx*4]
   add   ebx, [k+ecx*4]          ; store in ebx
 
-  ;; Calculate new compression state
-  mov   edx, [cpy+6*8]
-  mov   [cpy+7*8], edx
-  mov   edx, [cpy+5*8]
-  mov   [cpy+6*8], edx
-  mov   edx, [cpy+4*8]
-  mov   [cpy+5*8], edx
-  mov   edx, [cpy+3*8]
+  ;; Store new compression state in memory
+  mov   edx, [stt+6*8]
+  mov   [stt+7*8], edx
+  mov   edx, [stt+5*8]
+  mov   [stt+6*8], edx
+  mov   edx, [stt+4*8]
+  mov   [stt+5*8], edx
+  mov   edx, [stt+3*8]
   add   edx, ebx
-  mov   [cpy+4*8], edx
-  mov   edx, [cpy+2*8]
-  mov   [cpy+3*8], edx
-  mov   edx, [cpy+1*8]
-  mov   [cpy+2*8], edx
-  mov   edx, [cpy]
-  mov   [cpy+1*8], edx
+  mov   [stt+4*8], edx
+  mov   edx, [stt+2*8]
+  mov   [stt+3*8], edx
+  mov   edx, [stt+1*8]
+  mov   [stt+2*8], edx
+  mov   edx, [stt]
+  mov   [stt+1*8], edx
   add   eax, ebx
-  mov   [cpy], eax
+  mov   [stt], eax
 
   ;; recover registers
   pop   edx
@@ -160,7 +160,8 @@ m0:
   jb    l0
 
   ;; Print buffer
-  mov   edx, 64                 ; message length to edx
+  mov   [buf+64], byte 0xa      ; move new line character into last byte of buffer
+  mov   edx, 65                 ; message length to edx
   mov   ecx, buf                ; message to write to ecx
   mov   ebx, 1                  ; file descriptor (std_out) to ebx
   mov   eax, 4                  ; system call number (sys_write) to eax
