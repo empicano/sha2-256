@@ -10,7 +10,6 @@ section .data
 
 
 section .bss
-  buf             resb  65      ; buffer for print_dig (64 char digest + new line char)
   chk             resd  64      ; current chunk in message iteration
   stt             resd  8       ; state of compression function (begins as copy of i)
 
@@ -24,11 +23,11 @@ _start:
   pop   eax                     ; get number of program arguments
   cmp   eax, 2                  ; test if one argument
   jne   help                    ; if not equal, show usage message and exit
-  pop   ebx                     ; store program name argv[0] in ebx
-  pop   ebx                     ; overwrite ebx with first argument argv[1]
+  pop   esi                     ; store program name argv[0] in esi
+  pop   esi                     ; overwrite esi with first argument argv[1]
 
   ;; Compute the length of argv[1] and store in ecx
-  mov   edi, ebx                ; set edi to string argv[1]
+  mov   edi, esi                ; set edi to string argv[1]
   mov   ecx, -1                 ; set the max size of the string
   mov   eax, 0                  ; initialize eax with ascii NUL character
   cld
@@ -37,15 +36,13 @@ _start:
   dec   ecx                     ; decrement to account for read NUL character
 
   ;; Print digest and exit
-  call  print_dig
+  %if 0
+  mov   esi, i
+  mov   ecx, 8
+  call  print_memd
+  %endif
+
   jmp   exit
-
-
-pad:
-  ;; SHA256 padding function
-  ;; Append a single 1 bit to original message of length l bits
-  ;; Append k 0 bits where k is the minimum number >= 0 such that (l + 1 + k + 64) % 1024 = 0
-  ;; Append l as a 64-bit big-endian integer
 
 
 compress:
@@ -129,49 +126,121 @@ compress:
   pop   eax
   ret
 
+print_memd:
+  ;; Prints out memory segment as hex value (dword-wise, note little-endianness)
+  ;; Expects:
+  ;; ecx: length of memory segment in dwords
+  ;; esi: pointer to memory segment
 
-print_dig:
-  ;; Prints digest array i as hex string to std_out
-  push  eax                     ; save registers
-  push  ebx
-  push  ecx
-  push  edx
+  pusha
 
-  ;; Transforms values in i to ascii values and saves them in buffer
-  xor   ecx, ecx                ; set counter that loops over i to 0
-l0:
-  mov   eax, [i+ecx*4]          ; move next value from memory to eax
+  ;; Dynamically allocate memory
+  mov   ebx, 0                  ; get pointer to the first block we are allocating
+  mov   eax, 45                 ; system call number (brk)
+  int   0x80
+  mov   edi, eax                ; save pointer in edi
+  mov   ebx, eax                ; copy pointer in ebx
+  shl   ecx, 2
+  add   ebx, ecx                ; add number of bytes we want to allocate to pointer value
+  add   ebx, 1                  ; add one byte for new line character
+  mov   eax, 45
+  int   0x80                    ; call kernel
+
+  ;; Build hex string
+  mov   [edi+ecx*2], byte 0xa   ; move new line character into last byte of buffer
+  shl   ecx, 1
+  inc   ecx
+  push  ecx	                    ; push buffer length to stack
+  shr   ecx, 3
+g0:
+  dec   ecx
+  mov   eax, [esi+ecx*4]        ; move next value from memory to eax
   mov   edx, 8                  ; set counter that loops over next 32-bit value to 8
-l1:
+g1:
   dec   edx                     ; decrement inner loop counter
   mov   ebx, eax                ; move eax to ebx to be able to work on it
   and   ebx, 0xf                ; get only last digit of hex value (last 4 bits)
   cmp   ebx, 10                 ; is value >= 9 ?
-  jb    m0
+  jb    g2
   add   ebx, 0x27               ; if yes, add 0x57 to [10-15] to get byte value of ascii 'a'
-m0:
+g2:
   add   ebx, 0x30               ; if not, add 0x30 to [0-9] to get byte value of ascii '0'
-  mov   [buf+ecx*8+edx], bl     ; copy next ascii byte value from ebx to buffer
+  add   edi, edx
+  mov   [edi+ecx*8], bl         ; copy next ascii byte value from ebx to buffer
+  sub   edi, edx
   shr   eax, 4                  ; get next digit to be printed to the right of eax
   cmp   edx, 0                  ; iterate 8 times
-  ja    l1
-  inc   ecx                     ; increment outer loop counter
-  cmp   ecx, 8                  ; iterate 8 times
-  jb    l0
+  ja    g1
+  test  ecx, ecx                ; iterate over dwords
+  jnz   g0
 
   ;; Print buffer
-  mov   [buf+64], byte 0xa      ; move new line character into last byte of buffer
-  mov   edx, 65                 ; message length to edx
-  mov   ecx, buf                ; message to write to ecx
+  pop   edx                     ; buffer length to edx
+  mov   ecx, edi                ; pointer to ecx
   mov   ebx, 1                  ; file descriptor (std_out) to ebx
   mov   eax, 4                  ; system call number (sys_write) to eax
   int   0x80                    ; call kernel
 
-  pop   edx                     ; recover registers
-  pop   ecx
-  pop   ebx
-  pop   eax
+  popa
   ret                           ; return
+
+
+print_memb:
+  ;; Prints out memory segment as hex value (byte-wise, note little-endianness)
+  ;; Expects:
+  ;; ecx: length of memory segment in bytes
+  ;; esi: pointer to memory segment
+
+  pusha
+
+  ;; Dynamically allocate memory
+  mov   ebx, 0                  ; get pointer to the first block we are allocating
+  mov   eax, 45                 ; system call number (brk)
+  int   0x80
+  mov   edi, eax                ; save pointer in edi
+  mov   ebx, eax                ; copy pointer in ebx
+  add   ebx, ecx                ; add number of bytes we want to allocate to pointer value
+  add   ebx, ecx
+  add   ebx, 1                  ; add one byte for new line character
+  mov   eax, 45
+  int   0x80                    ; call kernel
+
+  ;; Build hex string
+  xor   edx, edx                ; set loop counter to zero
+e0:
+  cmp   edx, ecx                ; did we already print whole memory segment?
+  jz    e3
+  mov   al, [esi+edx]           ; get next value from memory
+  mov   bl, al                  ; copy value to bl
+  shr   al, 4                   ; get the 4 bit from the upper half
+  and   bl, 0xf                 ; get the 4 bit from the lower half
+  cmp   al, 10                  ; is value >= 9?
+  jb    e1
+  add   al, 0x27                ; if yes, add 0x57 to [10-15] to get byte value of ascii [a-f]
+e1:
+  add   al, 0x30                ; if not, add 0x30 to [0-9] to get byte value of ascii [0-9]
+  mov   [edi+edx*2], al         ; copy upper half ascii byte value to buffer
+  cmp   bl, 10                  ; same for lower half, is value >= 9?
+  jb    e2
+  add   bl, 0x27                ; if yes, ...
+e2:
+  add   bl, 0x30                ; if not, ...
+  mov   [edi+edx*2+1], bl       ; copy lower half ascii byte value to buffer
+  inc   edx
+  jmp   e0                      ; loop
+e3:
+  mov   [edi+edx*2], byte 0xa   ; move new line character into last byte of buffer
+  shl   edx, 2
+  inc   edx                     ; segment length to edx
+
+  ;; Print buffer
+  mov   ecx, edi                ; pointer to segment to write to ecx
+  mov   ebx, 1                  ; file descriptor (std_out) to ebx
+  mov   eax, 4                  ; system call number (sys_write) to eax
+  int   0x80                    ; call kernel
+
+  popa
+  ret
 
 
 help:
