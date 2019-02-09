@@ -35,6 +35,10 @@ _start:
   not   ecx                     ; get length of string
   dec   ecx                     ; decrement to account for read NUL character
 
+  ;; Pad message
+  call  pad
+  call  print_memd
+
   ;; Print digest and exit
   %if 0
   mov   esi, i
@@ -43,6 +47,110 @@ _start:
   %endif
 
   jmp   exit
+
+
+pad:
+  ;; SHA256 padding function
+  ;; Append a single 1 bit to original message of length l bits
+  ;; Append k 0 bits where k is the minimum number >= 0 such that (l + 1 + k + 64) % 1024 = 0
+  ;; Append l as a 64-bit big-endian integer
+
+  ;; Expects:
+  ;; ecx: length of program argument string in bytes
+  ;; esi: address of program argument string
+
+  ;; TODO Realize endianness change on the fly when copying message
+  ;; - eax komplett auf null setzen
+  ;; - falls noch message übrig ist:
+  ;; - nächstes byte von hinten reinladen so dass endianness gechanged wird, shl
+  ;; - wenn nicht bleibt das byte auf null, so wird gleich der pad auch gemacht
+
+  ;; Calculate length of k and save to edx
+  mov   eax, ecx
+  and   eax, 0x3f               ; calculate length of program argument string % 64
+  cmp   eax, 56
+  jb    m0
+  mov   edx, 119                ; k / 8 = 119 - r if result r of modulo operation is >= 56
+  jmp   m1
+m0:
+  mov   edx, 55                 ; else k / 8 = 55 - r
+m1:
+  sub   edx, eax
+
+  ;; Dynamically allocate memory
+  mov   ebx, 0                  ; get pointer to the first block we are allocating
+  mov   eax, 45                 ; system call number (brk)
+  int   0x80
+  mov   edi, eax                ; save pointer in edi
+  mov   ebx, eax                ; copy pointer in ebx
+  add   ebx, ecx                ; add number of bytes we want to allocate to pointer value
+  add   ebx, edx
+  add   ebx, 9
+  mov   eax, 45
+  int   0x80
+
+  ;; Status:
+  ;; ecx: length of program argument string in bytes
+  ;; edx: length of needed zero pad in bytes
+  ;; esi: address of program argument string
+  ;; edi: pointer to allocated memory
+
+  ;; Build padded message in newly allocated memory
+  mov   eax, ecx                ; save program argument string length
+  mov   ebx, edi                ; save pointer to allocated memory
+  cld
+  rep   movsb                   ; copy program argument string to allocated memory
+
+  mov   [edi], byte 0x80        ; append a single 1 bit
+  inc   edi
+
+  mov   ecx, edx                ; save number of zero pad bytes in ecx
+  add   ecx, 4
+  mov   edx, eax
+  mov   eax, 0                  ; save what to copy in eax
+  cld
+  rep   stosb                   ; zero padding
+
+  ;; Status:
+  ;; ebx: pointer to allocated memory
+  ;; edx: length of program argument string
+  ;; edi: pointer to allocated memory + eax + number of zero pad bytes
+
+  shl   edx, 3
+  mov   [edi], edx              ; save message length in bit as 64-bit value to end of pad
+  add   edi, 4
+
+  ;; Status:
+  ;; ebx: pointer to allocated memory
+  ;; edi: pointer to end of allocated memory
+
+  mov   ecx, edi
+  sub   ecx, ebx
+  shr   ecx, 2
+  mov   esi, ebx
+
+  ;; Status
+  ;; ecx: length of padded message in dwords
+  ;; esi: pointer to padded message
+
+  ;; Change endianness
+  mov   edx, ecx
+  dec   edx
+m2:
+  dec   edx
+  mov   eax, [esi+edx*4]
+  xchg  ah, al
+  ror   eax, 16
+  xchg  ah, al
+  mov   [esi+edx*4], eax
+  test  edx, edx
+  jnz   m2
+
+  ;; Status
+  ;; ecx: length of padded message in dwords
+  ;; esi: pointer to padded message
+
+  ret
 
 
 compress:
