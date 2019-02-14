@@ -37,33 +37,37 @@ _start:
 
   ;; Pad message
   call  pad
-  call  print_memd
+
+  ;; Wir iteraten in chunks of 16 dwords über die message
+  ;; Und extenden das auf 64 dwords
+
+  ;; Extend message
+  mov   ebx, 0
+  call  extend
 
   ;; Print digest and exit
-  %if 0
-  mov   esi, i
+  mov   esi, stt
   mov   ecx, 8
   call  print_memd
-  %endif
 
   jmp   exit
 
 
 pad:
-  ;; SHA256 padding function
+  ;; Padding function
   ;; Append a single 1 bit to original message of length l bits
-  ;; Append k 0 bits where k is the minimum number >= 0 such that (l + 1 + k + 64) % 1024 = 0
+  ;; Append k 0 bits where k is the minimum number >= 0 such that (l + 1 + k + 64) % 512 = 0
   ;; Append l as a 64-bit big-endian integer
 
   ;; Expects:
   ;; ecx: length of program argument string in bytes
-  ;; esi: address of program argument string
+  ;; esi: pointer to program argument string
 
   ;; TODO Realize endianness change on the fly when copying message
   ;; - eax komplett auf null setzen
   ;; - falls noch message übrig ist:
   ;; - nächstes byte von hinten reinladen so dass endianness gechanged wird, shl
-  ;; - wenn nicht bleibt das byte auf null, so wird gleich der pad auch gemacht
+  ;; - wenn nicht, bleibt das byte auf null, so wird gleich der pad auch gemacht
 
   ;; Calculate length of k and save to edx
   mov   eax, ecx
@@ -153,9 +157,60 @@ m2:
   ret
 
 
+extend:
+  ;; Extends message chunk from 16 dwords to 64 dwords
+
+  ;; Expects:
+  ;; ebx: counter value in padded message iteration
+  ;; esi: pointer to padded message
+
+  pusha
+
+	;; Copy 16 dwords from padded message to beginning of chunk
+  mov   ecx, 16                 ; number of dwords to copy
+  add   esi, ebx                ; pointer to padded message
+  mov   edi, chk                ; pointer to destination
+  cld
+  rep   movsd
+
+  ;; Extend copied dwords to fill all 64 dwords of chunk
+s0:
+  mov   eax, [chk+ecx*4+4]      ; calculate s0 in eax
+  mov   ebx, eax
+  mov   edx, eax
+  ror   eax, 7
+  ror   ebx, 18
+  shr   edx, 3
+  xor   eax, ebx
+  xor   eax, edx
+  mov   ebx, [chk+ecx*4+56]     ; calculate s1 in ebx
+  mov   edx, ebx
+  mov   esi, ebx
+  ror   ebx, 17
+  ror   edx, 19
+  shr   esi, 10
+  xor   ebx, edx
+  xor   ebx, esi
+  add   eax, ebx                ; add up to next extension dword
+  add   eax, [chk+ecx*4]
+  add   eax, [chk+ecx*4+36]
+  mov   [chk+ecx*4+64], eax
+  inc   ecx
+  cmp   ecx, 48                 ; counter runs from 0 to 47
+  jnz   s0
+
+  popa
+  ret
+
+
 compress:
-  ;; SHA256 compression function
+  ;; Compression function
   ;; Expects counter value to know position (0-63) in chunk and k in ecx
+
+  ;; TODO
+  ;; - testen
+  ;; - minimiere speicherzugriffe indem edi und esi mitbenutzt werden
+
   push  eax
   push  ebx
   push  edx
@@ -233,6 +288,7 @@ compress:
   pop   ebx
   pop   eax
   ret
+
 
 print_memd:
   ;; Prints out memory segment as hex value (dword-wise, note little-endianness)
