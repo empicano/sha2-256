@@ -45,6 +45,19 @@ _start:
   mov   ebx, 0
   call  extend
 
+  ;; Copy i to stt as initial state of compression function
+  mov   ecx, 8
+  mov   esi, i
+  mov   edi, stt
+  cld
+  rep   movsd
+
+  ;; Compress 64 times
+  mov   ecx, 0
+  call  compress
+  mov   ecx, 1
+  call  compress
+
   ;; Print digest and exit
   mov   esi, stt
   mov   ecx, 8
@@ -158,7 +171,7 @@ m2:
 
 
 extend:
-  ;; Extends message chunk from 16 dwords to 64 dwords
+  ;; Extends message chunk from 16 dwords to 64 dwords, saved in chk
 
   ;; Expects:
   ;; ebx: counter value in padded message iteration
@@ -208,7 +221,6 @@ compress:
   ;; Expects counter value to know position (0-63) in chunk and k in ecx
 
   ;; TODO
-  ;; - testen
   ;; - minimiere speicherzugriffe indem edi und esi mitbenutzt werden
 
   push  eax
@@ -217,10 +229,10 @@ compress:
   push  ecx
 
   ;; Calculate major
-  mov   eax, [stt]
+  mov   eax, [stt]              ; move a to eax
   mov   edx, eax
-  mov   ebx, [stt+1*4]
-  mov   ecx, [stt+2*4]
+  mov   ebx, [stt+4]            ; move b to ebx
+  mov   ecx, [stt+8]            ; move c to ecx
   and   eax, ebx
   and   ebx, ecx
   and   ecx, edx
@@ -228,7 +240,7 @@ compress:
   xor   eax, ecx                ; store in eax
 
   ;; Calculate sigma 0
-  mov   ebx, edx                ; remark that [stt] is still in edx
+  mov   ebx, edx                ; remark that a is still in edx
   mov   ecx, edx
   ror   ebx, 2
   ror   ecx, 13
@@ -240,7 +252,7 @@ compress:
   add   eax, ebx                ; store in eax
 
   ;; Calculate sigma 1
-  mov   ebx, [stt+4*4]
+  mov   ebx, [stt+16]           ; move e to ebx
   mov   ecx, ebx
   mov   edx, ebx
   ror   ebx, 6
@@ -250,36 +262,36 @@ compress:
   xor   ebx, edx                ; store in ebx
 
   ;; Calculate ch
-  mov   ecx, [stt+4*4]
+  mov   ecx, [stt+16]           ; move e to ecx
   mov   edx, ecx
-  not   ecx
-  and   ecx, [stt+6*4]
-  and   edx, [stt+5*4]
+  not   edx
+  and   ecx, [stt+20]           ; and with f
+  and   edx, [stt+24]           ; and with g
   xor   ecx, edx                ; store in ecx
 
   ;; Calculate t1
-  add   ebx, edx
-  add   ebx, [stt+7*8]
+  add   ebx, ecx
+  add   ebx, [stt+28]
   pop   ecx                     ; get counter from stack
   add   ebx, [chk+ecx*4]
   add   ebx, [k+ecx*4]          ; store in ebx
 
   ;; Store new compression state in memory
-  mov   edx, [stt+6*8]
-  mov   [stt+7*8], edx
-  mov   edx, [stt+5*8]
-  mov   [stt+6*8], edx
-  mov   edx, [stt+4*8]
-  mov   [stt+5*8], edx
-  mov   edx, [stt+3*8]
+  mov   edx, [stt+24]
+  mov   [stt+28], edx
+  mov   edx, [stt+20]
+  mov   [stt+24], edx
+  mov   edx, [stt+16]
+  mov   [stt+20], edx
+  mov   edx, [stt+12]
   add   edx, ebx
-  mov   [stt+4*8], edx
-  mov   edx, [stt+2*8]
-  mov   [stt+3*8], edx
-  mov   edx, [stt+1*8]
-  mov   [stt+2*8], edx
+  mov   [stt+16], edx
+  mov   edx, [stt+8]
+  mov   [stt+12], edx
+  mov   edx, [stt+4]
+  mov   [stt+8], edx
   mov   edx, [stt]
-  mov   [stt+1*8], edx
+  mov   [stt+4], edx
   add   eax, ebx
   mov   [stt], eax
 
