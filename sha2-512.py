@@ -43,7 +43,7 @@ def ror(x, b):
 
 def pad(m):
     '''
-    SHA512 padding function
+    SHA2-512 padding function
     Pads a message and converts to byte array
     Begin with original message of length l bits
     Append a single '1' bit
@@ -58,7 +58,7 @@ def pad(m):
 
 def compress(wt, kt, a, b, c, d, e, f, g, h):
     '''
-    SHA512 compression function
+    SHA2-512 compression function
     '''
     ch = (e & f) ^ (~e & g)
     ma = (a & b) ^ (a & c) ^ (b & c)  # major
@@ -68,9 +68,9 @@ def compress(wt, kt, a, b, c, d, e, f, g, h):
     t2 = s0 + ma
     return (t1 + t2) & F, a, b, c, (d + t1) & F, e, f, g
 
-def sha512(m):
+def sha2_512(m):
     '''
-    Performs SHA512 on an ascii input string
+    Performs SHA2-512 on an ascii input string
     m: the string to process
     Returns: the hex digest string
     '''
@@ -93,7 +93,7 @@ def sha512(m):
 
 if __name__ == '__main__':
     m = sys.argv[1] if len(sys.argv) > 1 else ''  # read command line argument
-    digest = sha512(m)
+    digest = sha2_512(m)
     assert digest == hashlib.sha512(m.encode('ascii')).hexdigest()
     print(digest)
 

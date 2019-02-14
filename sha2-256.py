@@ -39,12 +39,12 @@ def ror(x, b):
 
 def pad(m):
     '''
-    SHA256 padding function
+    SHA2-256 padding function
     Pads a message and converts to byte array
     Begin with original message of length l bits
     Append a single '1' bit
     Append k '0' bits, where k is the minimum number >= 0 such that l + 1 + k + 64
-    is a multiple of 1024
+    is a multiple of 512
     Append l as a 64-bit big-endian integer
     '''
     mdi = len(m) % 64
@@ -54,7 +54,7 @@ def pad(m):
 
 def compress(wt, kt, a, b, c, d, e, f, g, h):
     '''
-    SHA256 compression function
+    SHA2-256 compression function
     '''
     ch = (e & f) ^ (~e & g)
     ma = (a & b) ^ (a & c) ^ (b & c)  # major
@@ -64,9 +64,9 @@ def compress(wt, kt, a, b, c, d, e, f, g, h):
     t2 = s0 + ma
     return (t1 + t2) & F, a, b, c, (d + t1) & F, e, f, g
 
-def sha256(m):
+def sha2_256(m):
     '''
-    Performs SHA256 on an ascii input string
+    Performs SHA2-256 on an ascii input string
     m: the string to process
     Returns: the hex digest string
     '''
@@ -89,7 +89,7 @@ def sha256(m):
 
 if __name__ == '__main__':
     m = sys.argv[1] if len(sys.argv) > 1 else ''  # read command line argument
-    digest = sha256(m)
+    digest = sha2_256(m)
     assert digest == hashlib.sha256(m.encode('ascii')).hexdigest()
     print(digest)
 
