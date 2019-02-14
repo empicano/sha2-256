@@ -38,31 +38,20 @@ _start:
   ;; Pad message
   call  pad
 
-  ;; Wir iteraten in chunks of 16 dwords über die message
-  ;; Und extenden das auf 64 dwords
-
-  ;; Extend message
-  mov   ebx, 0
+  ;; Extend and compress
+  shr   ecx, 4                  ; number of chunks (each 16 dwords) to loop over
+  xor   ebx, ebx                ; initiate loop counter
+a0:
   call  extend
-
-  ;; Copy i to stt as initial state of compression function
-  mov   ecx, 8
-  mov   esi, i
-  mov   edi, stt
-  cld
-  rep   movsd
-
-  ;; Compress 64 times
-  mov   ecx, 0
   call  compress
-  mov   ecx, 1
-  call  compress
+  inc   ebx
+  cmp   ebx, ecx
+  jne   a0
 
   ;; Print digest and exit
-  mov   esi, stt
+  mov   esi, i
   mov   ecx, 8
   call  print_memd
-
   jmp   exit
 
 
@@ -174,13 +163,14 @@ extend:
   ;; Extends message chunk from 16 dwords to 64 dwords, saved in chk
 
   ;; Expects:
-  ;; ebx: counter value in padded message iteration
+  ;; ebx: counter in iteration of padded message (0 for 1. chunk, 1 for 2. chunk, ...)
   ;; esi: pointer to padded message
 
   pusha
 
 	;; Copy 16 dwords from padded message to beginning of chunk
   mov   ecx, 16                 ; number of dwords to copy
+  shl   ebx, 6
   add   esi, ebx                ; pointer to padded message
   mov   edi, chk                ; pointer to destination
   cld
@@ -218,67 +208,70 @@ s0:
 
 compress:
   ;; Compression function
-  ;; Expects counter value to know position (0-63) in chunk and k in ecx
 
-  ;; TODO
-  ;; - minimiere speicherzugriffe indem edi und esi mitbenutzt werden
+  pusha
 
-  push  eax
-  push  ebx
-  push  edx
-  push  ecx
+  ;; Copy i to stt as initial state of compression function
+  mov   ecx, 8
+  mov   esi, i
+  mov   edi, stt
+  cld
+  rep   movsd
+
+  ;; Loop 64 times
+  xor   ecx, ecx
+p0:
 
   ;; Calculate major
-  mov   eax, [stt]              ; move a to eax
-  mov   edx, eax
-  mov   ebx, [stt+4]            ; move b to ebx
-  mov   ecx, [stt+8]            ; move c to ecx
+  mov   eax, [stt]              ; load a
+  mov   esi, eax
+  mov   ebx, [stt+4]            ; load b
+  mov   edx, [stt+8]            ; load c
   and   eax, ebx
-  and   ebx, ecx
-  and   ecx, edx
+  and   ebx, edx
+  and   edx, esi
   xor   eax, ebx
-  xor   eax, ecx                ; store in eax
+  xor   eax, edx                ; store in eax
 
   ;; Calculate sigma 0
-  mov   ebx, edx                ; remark that a is still in edx
-  mov   ecx, edx
+  mov   ebx, esi                ; remark that a is still in esi
+  mov   edx, esi
   ror   ebx, 2
-  ror   ecx, 13
-  ror   edx, 22
-  xor   ebx, ecx
-  xor   ebx, edx                ; store in ebx
+  ror   edx, 13
+  ror   esi, 22
+  xor   ebx, edx
+  xor   ebx, esi                ; store in ebx
 
   ;; Calculate t2
   add   eax, ebx                ; store in eax
 
   ;; Calculate sigma 1
-  mov   ebx, [stt+16]           ; move e to ebx
-  mov   ecx, ebx
+  mov   ebx, [stt+16]           ; load e
   mov   edx, ebx
+  mov   esi, ebx
+  mov   edi, ebx
   ror   ebx, 6
-  ror   ecx, 11
-  ror   edx, 25
-  xor   ebx, ecx
-  xor   ebx, edx                ; store in ebx
+  ror   edx, 11
+  ror   esi, 25
+  xor   ebx, edx
+  xor   ebx, esi                ; store in ebx
 
   ;; Calculate ch
-  mov   ecx, [stt+16]           ; move e to ecx
-  mov   edx, ecx
+  mov   edx, edi                ; remark that e is still in edi
   not   edx
-  and   ecx, [stt+20]           ; and with f
-  and   edx, [stt+24]           ; and with g
-  xor   ecx, edx                ; store in ecx
+  and   edi, [stt+20]           ; load f
+  mov   esi, [stt+24]           ; load g
+  and   edx, esi
+  xor   edx, edi                ; store in edx
 
   ;; Calculate t1
-  add   ebx, ecx
-  add   ebx, [stt+28]
-  pop   ecx                     ; get counter from stack
+  add   ebx, edx
+  add   ebx, [stt+28]           ; load h
   add   ebx, [chk+ecx*4]
   add   ebx, [k+ecx*4]          ; store in ebx
 
-  ;; Store new compression state in memory
-  mov   edx, [stt+24]
-  mov   [stt+28], edx
+  ;; Store new state
+  mov   [stt+28], esi           ; remark that g is still in esi
   mov   edx, [stt+20]
   mov   [stt+24], edx
   mov   edx, [stt+16]
@@ -295,10 +288,29 @@ compress:
   add   eax, ebx
   mov   [stt], eax
 
-  ;; recover registers
-  pop   edx
-  pop   ebx
-  pop   eax
+  inc   ecx
+  cmp   ecx, 64
+  jl    p0
+
+  ;; Compute final digest of this round
+  mov   edx, [stt]
+  add   [i], edx
+  mov   edx, [stt+4]
+  add   [i+4], edx
+  mov   edx, [stt+8]
+  add   [i+8], edx
+  mov   edx, [stt+12]
+  add   [i+12], edx
+  mov   edx, [stt+16]
+  add   [i+16], edx
+  mov   edx, [stt+20]
+  add   [i+20], edx
+  mov   edx, [stt+24]
+  add   [i+24], edx
+  mov   edx, [stt+28]
+  add   [i+28], edx
+
+  popa
   ret
 
 
