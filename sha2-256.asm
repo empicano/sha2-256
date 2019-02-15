@@ -60,9 +60,14 @@ pad:
   ;; Append a single 1 bit to original message of length l bits
   ;; Append k 0 bits where k is the minimum number >= 0 such that (l + 1 + k + 64) % 512 = 0
   ;; Append l as a 64-bit big-endian integer
+
   ;; Expects:
   ;; ecx: length of program argument string in bytes
   ;; esi: pointer to program argument string
+
+  ;; Returns:
+  ;; ecx: length of padded message in dwords
+  ;; esi: pointer to padded message
 
   ;; TODO Realize endianness change on the fly when copying message
   ;; - eax komplett auf null setzen
@@ -270,8 +275,8 @@ p0:
 
   ;; Store new state
   mov   [stt+28], esi           ; remark that g is still in esi
-  mov   edx, [stt+20]
-  mov   [stt+24], edx
+  mov   edi, [stt+20]
+  mov   [stt+24], edi
   mov   edx, [stt+16]
   mov   [stt+20], edx
   mov   edx, [stt+12]
@@ -281,22 +286,18 @@ p0:
   mov   [stt+12], edx
   mov   edx, [stt+4]
   mov   [stt+8], edx
-  mov   edx, [stt]
-  mov   [stt+4], edx
   add   eax, ebx
+  mov   ebx, [stt]
+  mov   [stt+4], ebx
   mov   [stt], eax
 
   inc   ecx
   cmp   ecx, 64
   jl    p0
 
-  ;; TODO müssen nicht alles aus dem Speicher holen, können oben zwischenspeichern
-
   ;; Compute final digest of this round
-  mov   edx, [stt]
-  add   [i], edx
-  mov   edx, [stt+4]
-  add   [i+4], edx
+  add   [i], eax
+  add   [i+4], ebx
   mov   edx, [stt+8]
   add   [i+8], edx
   mov   edx, [stt+12]
@@ -304,11 +305,9 @@ p0:
   mov   edx, [stt+16]
   add   [i+16], edx
   mov   edx, [stt+20]
-  add   [i+20], edx
-  mov   edx, [stt+24]
-  add   [i+24], edx
-  mov   edx, [stt+28]
-  add   [i+28], edx
+  add   [i+20], edx             ; reuse values saved in registers
+  add   [i+24], edi
+  add   [i+28], esi
 
   popa
   ret
