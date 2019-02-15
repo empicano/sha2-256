@@ -1,7 +1,7 @@
 
 section .data
   ;; Usage message
-  msg_usage       db    'usage: sha2-256 <value>', 0xa
+  msg_usage       db    'usage: sha2-256 <string to hash>', 0xa
   msg_usage_len   equ   $ - msg_usage
   ;; Initialize hash values
   i               dd    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
@@ -26,7 +26,7 @@ _start:
   pop   esi                     ; store program name argv[0] in esi
   pop   esi                     ; overwrite esi with first argument argv[1]
 
-  ;; Compute the length of argv[1] and store in ecx
+  ;; Compute length of argv[1]
   mov   edi, esi                ; set edi to string argv[1]
   mov   ecx, -1                 ; set the max size of the string
   mov   eax, 0                  ; initialize eax with ascii NUL character
@@ -60,7 +60,6 @@ pad:
   ;; Append a single 1 bit to original message of length l bits
   ;; Append k 0 bits where k is the minimum number >= 0 such that (l + 1 + k + 64) % 512 = 0
   ;; Append l as a 64-bit big-endian integer
-
   ;; Expects:
   ;; ecx: length of program argument string in bytes
   ;; esi: pointer to program argument string
@@ -161,7 +160,6 @@ m2:
 
 extend:
   ;; Extends message chunk from 16 dwords to 64 dwords, saved in chk
-
   ;; Expects:
   ;; ebx: counter in iteration of padded message (0 for 1. chunk, 1 for 2. chunk, ...)
   ;; esi: pointer to padded message
@@ -292,6 +290,8 @@ p0:
   cmp   ecx, 64
   jl    p0
 
+  ;; TODO müssen nicht alles aus dem Speicher holen, können oben zwischenspeichern
+
   ;; Compute final digest of this round
   mov   edx, [stt]
   add   [i], edx
@@ -371,64 +371,6 @@ g2:
 
   popa
   ret                           ; return
-
-
-print_memb:
-  ;; Prints out memory segment as hex value (byte-wise, note little-endianness)
-  ;; Expects:
-  ;; ecx: length of memory segment in bytes
-  ;; esi: pointer to memory segment
-
-  pusha
-
-  ;; Dynamically allocate memory
-  mov   ebx, 0                  ; get pointer to the first block we are allocating
-  mov   eax, 45                 ; system call number (brk)
-  int   0x80
-  mov   edi, eax                ; save pointer in edi
-  mov   ebx, eax                ; copy pointer in ebx
-  add   ebx, ecx                ; add number of bytes we want to allocate to pointer value
-  add   ebx, ecx
-  add   ebx, 1                  ; add one byte for new line character
-  mov   eax, 45
-  int   0x80                    ; call kernel
-
-  ;; Build hex string
-  xor   edx, edx                ; set loop counter to zero
-e0:
-  cmp   edx, ecx                ; did we already print whole memory segment?
-  jz    e3
-  mov   al, [esi+edx]           ; get next value from memory
-  mov   bl, al                  ; copy value to bl
-  shr   al, 4                   ; get the 4 bit from the upper half
-  and   bl, 0xf                 ; get the 4 bit from the lower half
-  cmp   al, 10                  ; is value >= 9?
-  jb    e1
-  add   al, 0x27                ; if yes, add 0x57 to [10-15] to get byte value of ascii [a-f]
-e1:
-  add   al, 0x30                ; if not, add 0x30 to [0-9] to get byte value of ascii [0-9]
-  mov   [edi+edx*2], al         ; copy upper half ascii byte value to buffer
-  cmp   bl, 10                  ; same for lower half, is value >= 9?
-  jb    e2
-  add   bl, 0x27                ; if yes, ...
-e2:
-  add   bl, 0x30                ; if not, ...
-  mov   [edi+edx*2+1], bl       ; copy lower half ascii byte value to buffer
-  inc   edx
-  jmp   e0                      ; loop
-e3:
-  mov   [edi+edx*2], byte 0xa   ; move new line character into last byte of buffer
-  shl   edx, 2
-  inc   edx                     ; segment length to edx
-
-  ;; Print buffer
-  mov   ecx, edi                ; pointer to segment to write to ecx
-  mov   ebx, 1                  ; file descriptor (std_out) to ebx
-  mov   eax, 4                  ; system call number (sys_write) to eax
-  int   0x80                    ; call kernel
-
-  popa
-  ret
 
 
 help:
