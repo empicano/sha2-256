@@ -69,12 +69,6 @@ pad:
   ;; ecx: length of padded message in dwords
   ;; esi: pointer to padded message
 
-  ;; TODO Realize endianness change on the fly when copying message
-  ;; - eax komplett auf null setzen
-  ;; - falls noch message übrig ist:
-  ;; - nächstes byte von hinten reinladen so dass endianness gechanged wird, shl
-  ;; - wenn nicht, bleibt das byte auf null, so wird gleich der pad auch gemacht
-
   ;; Calculate length of k and save to edx
   mov   eax, ecx
   and   eax, 0x3f               ; calculate length of program argument string % 64
@@ -99,79 +93,85 @@ m1:
   mov   eax, 45
   int   0x80
 
-  ;; Status:
-  ;; ecx: length of program argument string in bytes
-  ;; edx: length of needed zero pad in bytes
-  ;; esi: address of program argument string
-  ;; edi: pointer to allocated memory
-
-  ;; Build padded message in newly allocated memory
-  mov   eax, ecx                ; save program argument string length
-  mov   ebx, edi                ; save pointer to allocated memory
-  cld
-  rep   movsb                   ; copy program argument string to allocated memory
-
-  mov   [edi], byte 0x80        ; append a single 1 bit
-  inc   edi
-
-  mov   ecx, edx                ; save number of zero pad bytes in ecx
-  add   ecx, 4
-  mov   edx, eax
-  mov   eax, 0                  ; save what to copy in eax
-  cld
-  rep   stosb                   ; zero padding
-
-  ;; Status:
-  ;; ebx: pointer to allocated memory
-  ;; edx: length of program argument string
-  ;; edi: pointer to allocated memory + eax + number of zero pad bytes
-
-  shl   edx, 3
-  mov   [edi], edx              ; save message length in bit as 64-bit value to end of pad
-  add   edi, 4
-
-  ;; Status:
-  ;; ebx: pointer to allocated memory
-  ;; edi: pointer to end of allocated memory
-
-  mov   ecx, edi
-  sub   ecx, ebx
-  shr   ecx, 2
-  mov   esi, ebx
-
-  ;; Status
-  ;; ecx: length of padded message in dwords
-  ;; esi: pointer to padded message
-
-  ;; Change endianness
-  mov   edx, ecx
-  dec   edx
+  ;; Copy argument string to newly allocated memory while changing endianness
+  xor   ebx, ebx                ; init counter
 m2:
-  dec   edx
-  mov   eax, [esi+edx*4]
-  xchg  ah, al
-  ror   eax, 16
-  xchg  ah, al
-  mov   [esi+edx*4], eax
-  test  edx, edx
+  xor   eax, eax                ; set eax to zero
+  mov   al, [esi+ebx]           ; load next byte
+  shl   eax, 8                  ; shift to change endianness
+  inc   ebx
+  cmp   ecx, ebx                ; check for end of argument string
+  jz    m3
+  mov   al, [esi+ebx]           ; load next byte
+  shl   eax, 8
+  inc   ebx
+  cmp   ecx, ebx
+  jz    m4
+  mov   al, [esi+ebx]           ; load next byte
+  shl   eax, 8
+  inc   ebx
+  cmp   ecx, ebx
+  jz    m5
+  mov   al, [esi+ebx]           ; load next byte
+  inc   ebx
+  mov   [edi+ebx-4], eax        ; copy eax to allocated memory
+  cmp   ecx, ebx
   jnz   m2
 
-  ;; Status
-  ;; ecx: length of padded message in dwords
-  ;; esi: pointer to padded message
+  ;; Append a single 1 bit to argument string
+  mov   al, byte 0x80           ; append bit
+  shl   eax, 24                 ; shift to change endianness
+  add   ebx, 4                  ; update counter
+  jmp   m6
+m3:
+  mov   al, byte 0x80           ; append bit
+  shl   eax, 16
+  add   ebx, 3
+  jmp   m6
+m4:
+  mov   al, byte 0x80           ; append bit
+  shl   eax, 8
+  add   ebx, 2
+  jmp   m6
+m5:
+  mov   al, byte 0x80           ; append bit
+  inc   ebx
+m6:
+  mov   [edi+ebx-4], eax        ; copy eax to allocated memory
+  mov   esi, edi                ; copy pointer to copied string
+  add   edi, ebx                ; compute pointer to the end of copied string
+
+  ;; Pad message with zeros
+  mov   ebx, ecx                ; copy argument string length
+  mov   ecx, edx                ; copy number of zero pad bytes to ecx
+  shr   ecx, 2                  ; transform count from bytes to double words (rounding down)
+  xor   eax, eax                ; save what to copy in eax
+  cld
+  rep   stosd                   ; zero padding
+
+  ;; save argument string length in bit as 64-bit value to the end
+  shl   ebx, 3
+  mov   [edi], eax              ; set the first 32 bit to 0 by default
+  mov   [edi+4], ebx            ; save argument string length in bit as 32-bit value to the end
+  add   edi, 8
+
+  mov   ecx, edi
+  sub   ecx, esi
+  shr   ecx, 2
 
   ret
 
 
 extend:
   ;; Extends message chunk from 16 dwords to 64 dwords, saved in chk
+
   ;; Expects:
   ;; ebx: counter in iteration of padded message (0 for 1. chunk, 1 for 2. chunk, ...)
   ;; esi: pointer to padded message
 
   pusha
 
-	;; Copy 16 dwords from padded message to beginning of chunk
+  ;; Copy 16 dwords from padded message to beginning of chunk
   mov   ecx, 16                 ; number of dwords to copy
   shl   ebx, 6
   add   esi, ebx                ; pointer to padded message
@@ -315,6 +315,7 @@ p0:
 
 print_memd:
   ;; Prints out memory segment as hex value (dword-wise, note little-endianness)
+
   ;; Expects:
   ;; ecx: length of memory segment in dwords
   ;; esi: pointer to memory segment
@@ -337,7 +338,7 @@ print_memd:
   mov   [edi+ecx*2], byte 0xa   ; move new line character into last byte of buffer
   shl   ecx, 1
   inc   ecx
-  push  ecx	                    ; push buffer length to stack
+  push  ecx                     ; push buffer length to stack
   shr   ecx, 3
 g0:
   dec   ecx
